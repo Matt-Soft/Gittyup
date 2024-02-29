@@ -28,6 +28,7 @@
 #include <QStyledItemDelegate>
 #include <QTreeView>
 #include <QVBoxLayout>
+#include <QSortFilterProxyModel>
 
 namespace {
 
@@ -86,6 +87,21 @@ protected:
       option->features |= QStyleOptionViewItem::HasDecoration;
       option->decorationSize = QSize(20, 20);
     }
+  }
+};
+
+class CustomSortFilterProxyModel : public QSortFilterProxyModel {
+protected:
+  virtual bool lessThan(const QModelIndex &left, const QModelIndex &right) const override {
+    if (left.parent().isValid() && right.parent().isValid()) {
+      QVariant leftData = sourceModel()->data(left);
+      QVariant rightData = sourceModel()->data(right);
+
+      if (leftData.type() == QVariant::String && rightData.type() == QVariant::String) {
+        return QString::localeAwareCompare(leftData.toString(), rightData.toString()) < 0;
+      }
+    }
+    return false;
   }
 };
 
@@ -611,7 +627,15 @@ SideBar::SideBar(TabWidget *tabs, QWidget *parent) : QWidget(parent) {
   view->setItemDelegate(new ProgressDelegate(view));
 
   RepoModel *model = new RepoModel(tabs, view);
-  view->setModel(model);
+
+  CustomSortFilterProxyModel *proxyModel = new CustomSortFilterProxyModel();
+  proxyModel->setSourceModel(model);
+  proxyModel->setSortCaseSensitivity(Qt::CaseInsensitive);
+  proxyModel->setSortRole(Qt::DisplayRole);
+
+  view->setModel(proxyModel);
+  view->setSortingEnabled(true);
+
 
   // Restore selection and expansion state after model reset.
   connect(model, &RepoModel::modelReset, view, [view, model] {
