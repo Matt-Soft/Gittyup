@@ -14,6 +14,7 @@
 #include "ProgressIndicator.h"
 #include "RepoView.h"
 #include "Debug.h"
+#include "ConfigKeys.h"
 #include "app/Application.h"
 #include "conf/Settings.h"
 #include "dialogs/MergeDialog.h"
@@ -186,8 +187,8 @@ public:
 
     // Update status row.
     bool head = (!mRef.isValid() || mRef.isHead());
-    bool valid = (mCleanStatus || !mStatus.isFinished() || status().isValid());
-    if (head && valid && mPathspec.isEmpty()) {
+    bool valid = (!mStatus.isFinished() || status().isValid());
+    if (mShowCleanStatus && head && valid && mPathspec.isEmpty()) {
       QVector<Column> row;
       if (mGraphVisible && mRef.isValid() && mStatus.isFinished()) {
         row.append({Segment(Bottom, kTaintedColor), Segment(Dot, QColor())});
@@ -208,7 +209,8 @@ public:
         sort |= GIT_SORT_TOPOLOGICAL;
       }
 
-      mWalker = mRef.walker(sort);
+      mWalker = mRef.walker(
+          sort, mRefsFilter == CommitList::RefsFilter::SelectedRefIgnoreMerge);
       if (mRef.isLocalBranch()) {
         // Add the upstream branch.
         if (git::Branch upstream = git::Branch(mRef).upstream())
@@ -221,7 +223,7 @@ public:
           mWalker.push(mergeHead);
       }
 
-      if (mRefsAll) {
+      if (mRefsFilter == CommitList::RefsFilter::AllRefs) {
         foreach (const git::Reference ref, mRepo.refs()) {
           if (!ref.isStash())
             mWalker.push(ref);
@@ -237,10 +239,11 @@ public:
 
   void resetSettings(bool walk = false) {
     git::Config config = mRepo.appConfig();
-    mRefsAll = config.value<bool>("commit.refs.all", true);
-    mSortDate = config.value<bool>("commit.sort.date", true);
-    mCleanStatus = config.value<bool>("commit.status.clean", false);
-    mGraphVisible = config.value<bool>("commit.graph.visible", true);
+    mRefsFilter = static_cast<CommitList::RefsFilter>(config.value<int>(
+        ConfigKeys::kRefsKey, (int)CommitList::RefsFilter::AllRefs));
+    mSortDate = config.value<bool>(ConfigKeys::kSortKey, true);
+    mShowCleanStatus = config.value<bool>(ConfigKeys::kStatusKey, true);
+    mGraphVisible = config.value<bool>(ConfigKeys::kGraphKey, true);
 
     if (walk)
       resetWalker();
@@ -273,6 +276,9 @@ public:
         // FIXME: Mark commits that point to existing parent?
         if (indexOf(parent) < 0 && !contains(parent, rows))
           replacements.append(parent);
+        if (mRefsFilter == CommitList::RefsFilter::SelectedRefIgnoreMerge) {
+          break;
+        }
       }
 
       // Set parents for next row.
@@ -557,9 +563,9 @@ private:
 
   // walker settings
   bool mSuppressResetWalker{false};
-  bool mRefsAll = true;
+  CommitList::RefsFilter mRefsFilter{CommitList::RefsFilter::AllRefs};
   bool mSortDate = true;
-  bool mCleanStatus = true;
+  bool mShowCleanStatus = true;
   bool mGraphVisible = true;
 };
 
